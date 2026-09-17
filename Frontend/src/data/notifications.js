@@ -1,0 +1,61 @@
+// ═══════════════════════════════════════════════
+// Skill Xchange — Notifications Mock Data
+// ═══════════════════════════════════════════════
+
+export const initialNotifications = [
+  {
+    id: 'notif_1',
+    userId: 'user_1',
+    type: 'request_received',
+    title: 'New Learning Request',
+    message: 'Neha Singh wants to learn React from you',
+    fromUserId: 'user_3',
+    read: false,
+    createdAt: '2024-09-14T10:30:00Z',
+    link: '/requests',
+  },
+  {
+    id: 'notif_2',
+    userId: 'user_1',
+    type: 'credit_received',
+    title: 'Credits Received',
+    message: 'You earned 50 Skill Credits for teaching React Basics',
+    fromUserId: 'user_3',
+    read: true,
+    createdAt: '2024-09-12T16:00:00Z',
+    link: '/credits',
+  },
+  {
+    id: 'notif_3',
+    userId: 'user_1',
+    type: 'session_reminder',
+    title: 'Upcoming Session',
+    message: 'Your session on JavaScript ES6 is tomorrow at 3 PM',
+    fromUserId: null,
+    read: true,
+    createdAt: '2024-09-11T09:00:00Z',
+    link: '/sessions',
+  },
+  {
+    id: 'notif_4',
+    userId: 'user_2',
+    type: 'request_received',
+    title: 'New Learning Request',
+    message: 'Priya Gupta wants to learn UI/UX Design from you',
+    fromUserId: 'user_5',
+    read: true,
+    createdAt: '2024-09-08T09:15:00Z',
+    link: '/requests',
+  },
+  {
+    id: 'notif_5',
+    userId: 'user_1',
+    type: 'review_received',
+    title: 'New Review',
+    message: 'You received a 5-star review from Arjun Mehta',
+    fromUserId: 'user_4',
+    read: false,
+    createdAt: '2024-09-10T14:00:00Z',
+    link: '/profile',
+  },
+];
