@@ -1,31 +1,80 @@
 // ═══════════════════════════════════════════════
 // Skill Xchange — App Context
-// Global state for requests, sessions, credits, notifications
+// Centralized state for requests, sessions, credits, chat, notifications
 // ═══════════════════════════════════════════════
 
-import { createContext, useContext, useState, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { useAuth } from './AuthContext';
 import { requestService } from '../services/requestService';
 import { sessionService } from '../services/sessionService';
 import { creditService } from '../services/creditService';
 import { chatService } from '../services/chatService';
-import { initialNotifications } from '../data/notifications';
+import { notificationService } from '../services/notificationService';
+import { TOKEN_KEY } from '../services/api';
 
 const AppContext = createContext(null);
 
-const NOTIF_KEY = 'skillxchange_notifications';
-
-function getStoredNotifications() {
-  const data = localStorage.getItem(NOTIF_KEY);
-  return data ? JSON.parse(data) : [...initialNotifications];
-}
-
 export function AppProvider({ children }) {
+  const { currentUser } = useAuth();
   const [refreshKey, setRefreshKey] = useState(0);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [walletBalance, setWalletBalance] = useState(100);
+  const [connections, setConnections] = useState([]);
 
-  // Force re-render by incrementing key — services read from localStorage
+  // Increment key to trigger reactive re-fetching across consumers
   const refresh = useCallback(() => {
     setRefreshKey((k) => k + 1);
   }, []);
+
+  // Sync background metrics (unread notifications, wallet balance, accepted connections)
+  useEffect(() => {
+    let isMounted = true;
+    const token = localStorage.getItem(TOKEN_KEY);
+    const currentUserId = currentUser?.id || currentUser?._id;
+
+    if (!token || !currentUserId) {
+      setWalletBalance(100);
+      setUnreadCount(0);
+      setConnections([]);
+      return;
+    }
+
+    if (typeof currentUser?.credits === 'number') {
+      setWalletBalance(currentUser.credits);
+    }
+
+    async function loadGlobalMetrics() {
+      try {
+        const [notifData, walletData, reqData] = await Promise.allSettled([
+          notificationService.getNotifications(1, 10),
+          creditService.getWalletSummary(),
+          requestService.getAllRequests(),
+        ]);
+
+        if (isMounted) {
+          if (notifData.status === 'fulfilled') {
+            setUnreadCount(notifData.value?.unreadCount ?? 0);
+          }
+          if (walletData.status === 'fulfilled') {
+            setWalletBalance(walletData.value?.balance ?? currentUser?.credits ?? 100);
+          }
+          if (reqData.status === 'fulfilled') {
+            const allReqs = reqData.value?.requests || [];
+            const accepted = allReqs.filter((r) => r.status === 'accepted');
+            setConnections(accepted);
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to load global metrics:', err);
+      }
+    }
+
+    loadGlobalMetrics();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [refreshKey, currentUser?.id, currentUser?._id, currentUser?.credits]);
 
   // ── Requests ──
   const sendRequest = async (data) => {
@@ -35,149 +84,105 @@ export function AppProvider({ children }) {
   };
 
   const acceptRequest = async (requestId) => {
-    try {
-      const result = await requestService.acceptRequest(requestId);
-      refresh();
-      return result;
-    } catch (err) {
-      throw err;
-    }
+    const result = await requestService.acceptRequest(requestId);
+    refresh();
+    return result;
   };
 
   const rejectRequest = async (requestId) => {
-    try {
-      const result = await requestService.rejectRequest(requestId);
-      refresh();
-      return result;
-    } catch (err) {
-      throw err;
-    }
+    const result = await requestService.rejectRequest(requestId);
+    refresh();
+    return result;
   };
 
   const getIncomingRequests = (userId) => requestService.getIncomingRequests(userId);
   const getOutgoingRequests = (userId) => requestService.getOutgoingRequests(userId);
-  const getConnections = (userId) => requestService.getConnections ? requestService.getConnections(userId) : [];
+
+  const getConnections = useCallback((userId) => {
+    return connections.map((r) => {
+      const fromId = r.fromUser?._id ? r.fromUser._id.toString() : (r.fromUser?.id || r.fromUser || r.fromUserId);
+      const toId = r.toUser?._id ? r.toUser._id.toString() : (r.toUser?.id || r.toUser || r.toUserId);
+      const otherUser = fromId === userId ? r.toUser : r.fromUser;
+      const otherUserId = fromId === userId ? toId : fromId;
+      return {
+        request: r,
+        otherUserId,
+        otherUser: typeof otherUser === 'object' ? otherUser : null,
+      };
+    });
+  }, [connections]);
 
   // ── Sessions ──
-  const createSession = (data) => {
-    const result = sessionService.createSession(data);
-    if (result) {
-      addNotification({
-        userId: data.teacherId === data.learnerId ? data.learnerId : data.teacherId,
-        type: 'session_scheduled',
-        title: 'Session Scheduled',
-        message: `A new session on ${data.skill} has been scheduled`,
-        fromUserId: data.learnerId,
-        link: '/sessions',
-      });
-    }
+  const createSession = async (data) => {
+    const result = await sessionService.createSession(data);
     refresh();
     return result;
   };
 
-  const completeSession = (sessionId) => {
-    const result = sessionService.completeSession(sessionId);
+  const completeSession = async (sessionId, details = {}) => {
+    const result = await sessionService.completeSession(sessionId, details);
     refresh();
     return result;
   };
 
-  const rateSession = (sessionId, rating, review) => {
-    const result = sessionService.rateSession(sessionId, rating, review);
+  const cancelSession = async (sessionId) => {
+    const result = await sessionService.cancelSession(sessionId);
     refresh();
     return result;
   };
 
-  const getUserSessions = (userId) => sessionService.getUserSessions(userId);
-  const getUpcomingSessions = (userId) => sessionService.getUpcomingSessions(userId);
-  const getCompletedSessions = (userId) => sessionService.getCompletedSessions(userId);
+  const rateSession = async (sessionId, rating, review) => {
+    const result = await sessionService.rateSession(sessionId, rating, review);
+    refresh();
+    return result;
+  };
+
+  const getUserSessions = (userId) => sessionService.getSessions();
+  const getUpcomingSessions = (userId) => sessionService.getUpcomingSessions();
+  const getCompletedSessions = (userId) => sessionService.getCompletedSessions();
 
   // ── Credits ──
-  const getBalance = (userId) => creditService.getBalance(userId);
-
-  const transferCredits = (data) => {
-    const result = creditService.transferCredits(data);
-    if (result.success) {
-      sessionService.transferCredits(data.sessionId, data.amount);
-      addNotification({
-        userId: data.toUserId,
-        type: 'credit_received',
-        title: 'Credits Received!',
-        message: `You received ${data.amount} Skill Credits`,
-        fromUserId: data.fromUserId,
-        link: '/credits',
-      });
+  const getBalance = (userId) => {
+    const currentUserId = currentUser?.id || currentUser?._id;
+    if (!userId || userId === currentUserId) {
+      return walletBalance;
     }
-    refresh();
-    return result;
+    return 100;
   };
 
-  const getTransactionHistory = (userId) => creditService.getTransactionHistory(userId);
+  const transferCredits = async (data) => {
+    // When completed via session completion, credits settle through completeSession
+    refresh();
+    return { success: true };
+  };
+
+  const getTransactionHistory = (userId) => creditService.getTransactionHistory();
 
   // ── Chat ──
-  const getConversation = (userId1, userId2) => chatService.getConversation(userId1, userId2);
+  const getConversation = (userId1, userId2) => chatService.getMessages(userId2);
 
-  const sendMessage = (fromUserId, toUserId, text) => {
-    const result = chatService.sendMessage(fromUserId, toUserId, text);
+  const sendMessage = async (fromUserId, toUserId, text) => {
+    const result = await chatService.sendMessage(toUserId, text);
     refresh();
     return result;
   };
 
   // ── Notifications ──
-  const getNotifications = (userId) => {
-    return getStoredNotifications()
-      .filter((n) => n.userId === userId)
-      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  };
+  const getNotifications = (userId) => notificationService.getNotifications();
+  const getUnreadCount = (userId) => unreadCount;
 
-  const getUnreadCount = (userId) => {
-    return getStoredNotifications().filter(
-      (n) => n.userId === userId && !n.read
-    ).length;
-  };
-
-  const addNotification = ({ userId, type, title, message, fromUserId, link }) => {
-    const notifs = getStoredNotifications();
-    notifs.push({
-      id: 'notif_' + Date.now(),
-      userId,
-      type,
-      title,
-      message,
-      fromUserId,
-      read: false,
-      createdAt: new Date().toISOString(),
-      link: link || '/',
-    });
-    localStorage.setItem(NOTIF_KEY, JSON.stringify(notifs));
-  };
-
-  const markNotificationRead = (notifId) => {
-    const notifs = getStoredNotifications();
-    const idx = notifs.findIndex((n) => n.id === notifId);
-    if (idx !== -1) {
-      notifs[idx].read = true;
-      localStorage.setItem(NOTIF_KEY, JSON.stringify(notifs));
-      refresh();
-    }
-  };
-
-  const markAllNotificationsRead = (userId) => {
-    const notifs = getStoredNotifications();
-    notifs.forEach((n) => {
-      if (n.userId === userId) n.read = true;
-    });
-    localStorage.setItem(NOTIF_KEY, JSON.stringify(notifs));
+  const markNotificationRead = async (notifId) => {
+    const result = await notificationService.markAsRead(notifId);
+    setUnreadCount((prev) => Math.max(0, prev - 1));
     refresh();
+    return result;
   };
 
-  // ── Reset all data ──
-  const resetAllData = () => {
-    requestService.resetRequests();
-    sessionService.resetSessions();
-    creditService.resetCredits();
-    chatService.resetMessages();
-    localStorage.removeItem(NOTIF_KEY);
+  const markAllNotificationsRead = async (userId) => {
+    const result = await notificationService.markAllAsRead();
+    setUnreadCount(0);
     refresh();
+    return result;
   };
 
   const value = {
@@ -193,24 +198,25 @@ export function AppProvider({ children }) {
     // Sessions
     createSession,
     completeSession,
+    cancelSession,
     rateSession,
     getUserSessions,
     getUpcomingSessions,
     getCompletedSessions,
     // Credits
     getBalance,
+    walletBalance,
     transferCredits,
     getTransactionHistory,
     // Chat
     getConversation,
     sendMessage,
     // Notifications
+    unreadCount,
     getNotifications,
     getUnreadCount,
     markNotificationRead,
     markAllNotificationsRead,
-    // Reset
-    resetAllData,
   };
 
   return (

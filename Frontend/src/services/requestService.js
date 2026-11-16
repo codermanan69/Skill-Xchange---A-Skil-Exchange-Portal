@@ -73,7 +73,7 @@ export const requestService = {
       const data = await api.patch(`/requests/${requestId}/accept`);
       return data.request;
     } catch (err) {
-      throw new Error(err.message || 'Failed to accept request');
+      throw new Error(err.message || 'Failed to accept request', { cause: err });
     }
   },
 
@@ -85,7 +85,7 @@ export const requestService = {
       const data = await api.patch(`/requests/${requestId}/reject`);
       return data.request;
     } catch (err) {
-      throw new Error(err.message || 'Failed to reject request');
+      throw new Error(err.message || 'Failed to reject request', { cause: err });
     }
   },
 

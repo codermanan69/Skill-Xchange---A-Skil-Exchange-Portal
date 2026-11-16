@@ -1,8 +1,9 @@
 // ═══════════════════════════════════════════════
 // Skill Xchange — Dashboard Page
+// Integrates with backend APIs for requests, sessions, credits
 // ═══════════════════════════════════════════════
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Coins,
@@ -19,6 +20,8 @@ import { useAuth } from '../context/AuthContext';
 import { useApp } from '../context/AppContext';
 import { userService } from '../services/userService';
 import { requestService } from '../services/requestService';
+import { sessionService } from '../services/sessionService';
+import { creditService } from '../services/creditService';
 import Avatar from '../components/Avatar';
 import SkillTag from '../components/SkillTag';
 import StatusBadge from '../components/StatusBadge';
@@ -26,46 +29,62 @@ import { getUserById } from '../data/users';
 
 export default function Dashboard() {
   const { currentUser } = useAuth();
-  const {
-    getBalance,
-    getUpcomingSessions,
-    getCompletedSessions,
-    getTransactionHistory,
-    refreshKey,
-  } = useApp();
-  const [incoming, setIncoming] = useState([]);
+  const { refreshKey } = useApp();
   const navigate = useNavigate();
+
+  const [incoming, setIncoming] = useState([]);
+  const [upcoming, setUpcoming] = useState([]);
+  const [completed, setCompleted] = useState([]);
+  const [wallet, setWallet] = useState({ balance: 100, recentTransactions: [] });
+  const [matches, setMatches] = useState([]);
 
   const currentUserId = currentUser?.id || currentUser?._id;
 
-  useEffect(() => {
-    let isMounted = true;
-    async function loadRequests() {
-      try {
-        const reqs = await requestService.getIncomingRequests();
-        if (isMounted && Array.isArray(reqs)) {
-          setIncoming(reqs.filter((r) => r.status === 'pending'));
-        }
-      } catch (err) {
-        console.warn('Dashboard failed to load incoming requests:', err);
-      }
-    }
+  const loadDashboardData = useCallback(async () => {
+    try {
+      const [reqs, sessionsData, walletData, discoverData] = await Promise.allSettled([
+        requestService.getIncomingRequests(),
+        sessionService.getSessions(),
+        creditService.getWalletSummary(),
+        userService.getDiscoverUsers(),
+      ]);
 
-    if (currentUserId) {
-      loadRequests();
+      if (reqs.status === 'fulfilled' && Array.isArray(reqs.value)) {
+        setIncoming(reqs.value.filter((r) => r.status === 'pending'));
+      }
+
+      if (sessionsData.status === 'fulfilled') {
+        setUpcoming(sessionsData.value?.upcoming || []);
+        setCompleted(sessionsData.value?.completed || []);
+      }
+
+      if (walletData.status === 'fulfilled') {
+        setWallet(walletData.value);
+      }
+
+      if (discoverData.status === 'fulfilled') {
+        const top = discoverData.value?.matches || [];
+        if (top.length > 0) {
+          setMatches(top);
+        } else {
+          setMatches(userService.getSkillMatches(currentUserId));
+        }
+      }
+    } catch (err) {
+      console.warn('Dashboard data fetch error:', err);
     }
-    return () => {
-      isMounted = false;
-    };
-  }, [currentUserId, refreshKey]);
+  }, [currentUserId]);
+
+  useEffect(() => {
+    if (currentUserId) {
+      loadDashboardData();
+    }
+  }, [loadDashboardData, refreshKey, currentUserId]);
 
   if (!currentUser) return null;
 
-  const balance = currentUser.credits ?? getBalance(currentUserId);
-  const upcoming = getUpcomingSessions(currentUserId);
-  const completed = getCompletedSessions(currentUserId);
-  const matches = userService.getSkillMatches(currentUserId);
-  const recentTxns = getTransactionHistory(currentUserId).slice(0, 3);
+  const balance = wallet.balance ?? (currentUser.credits || 100);
+  const recentTxns = wallet.recentTransactions?.slice(0, 3) || [];
 
   const stats = [
     { label: 'Skill Credits', value: balance, icon: Coins, color: 'from-warning-400 to-warning-500', textColor: 'text-warning-600' },
@@ -146,13 +165,13 @@ export default function Dashboard() {
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-surface-800 group-hover:text-primary-600 transition-colors truncate">{user.name}</p>
                     <div className="flex flex-wrap gap-1 mt-1">
-                      {matchingSkills.slice(0, 2).map((s) => (
+                      {(matchingSkills || []).slice(0, 2).map((s) => (
                         <SkillTag key={s} name={s} size="xs" />
                       ))}
                     </div>
                   </div>
                   <div className="text-xs text-primary-500 font-medium shrink-0">
-                    {matchingSkills.length + reverseMatch.length} match{matchingSkills.length + reverseMatch.length !== 1 ? 'es' : ''}
+                    {(matchingSkills?.length || 0) + (reverseMatch?.length || 0)} match{(matchingSkills?.length || 0) + (reverseMatch?.length || 0) !== 1 ? 'es' : ''}
                   </div>
                 </div>
               ))}
@@ -176,9 +195,13 @@ export default function Dashboard() {
           {upcoming.length > 0 ? (
             <div className="space-y-3">
               {upcoming.slice(0, 3).map((session) => {
-                const other = getUserById(
-                  session.teacherId === currentUserId ? session.learnerId : session.teacherId
-                );
+                const teacherId = session.teacher?._id ? session.teacher._id.toString() : (session.teacher?.id || session.teacherId);
+                const isTeacher = teacherId === currentUserId;
+                const otherRaw = isTeacher ? (session.learner || session.learnerId) : (session.teacher || session.teacherId);
+                const other = typeof otherRaw === 'object' && otherRaw !== null
+                  ? otherRaw
+                  : (getUserById(otherRaw) || { name: 'Connection' });
+
                 return (
                   <div key={session.id} className="flex items-center gap-3 p-3 rounded-lg hover:bg-surface-50 transition-colors cursor-pointer"
                     onClick={() => navigate('/sessions')}>

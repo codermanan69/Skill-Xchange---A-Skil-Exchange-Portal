@@ -1,95 +1,65 @@
 // ═══════════════════════════════════════════════
-// Skill Xchange — Credit Service
-// Currently uses localStorage. Replace with API calls later.
+// Skill Xchange — Credit / Wallet Service
+// Integrates with backend APIs at /api/credits
 // ═══════════════════════════════════════════════
 
+import { api } from './api';
 import { initialTransactions } from '../data/transactions';
-import { users } from '../data/users';
-
-const TRANSACTIONS_KEY = 'skillxchange_transactions';
-const CREDITS_KEY = 'skillxchange_credits';
-
-function getTransactions() {
-  const data = localStorage.getItem(TRANSACTIONS_KEY);
-  return data ? JSON.parse(data) : [...initialTransactions];
-}
-
-function saveTransactions(txns) {
-  localStorage.setItem(TRANSACTIONS_KEY, JSON.stringify(txns));
-}
-
-function getCreditsMap() {
-  const data = localStorage.getItem(CREDITS_KEY);
-  if (data) return JSON.parse(data);
-  // Initialize from users data
-  const map = {};
-  users.forEach((u) => { map[u.id] = u.credits; });
-  return map;
-}
-
-function saveCredits(map) {
-  localStorage.setItem(CREDITS_KEY, JSON.stringify(map));
-}
 
 export const creditService = {
-  getBalance(userId) {
-    const map = getCreditsMap();
-    return map[userId] || 0;
-  },
-
-  getTransactionHistory(userId) {
-    return getTransactions()
-      .filter((t) => t.userId === userId)
-      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  },
-
-  transferCredits({ fromUserId, toUserId, amount, description, sessionId }) {
-    const map = getCreditsMap();
-    const currentBalance = map[fromUserId] || 0;
-
-    if (currentBalance < amount) {
-      return { error: 'Insufficient credits' };
+  /**
+   * Get wallet summary: available balance, total earned, total spent, recent transactions
+   */
+  async getWalletSummary() {
+    try {
+      const data = await api.get('/credits');
+      return {
+        balance: data?.balance ?? 0,
+        totalEarned: data?.totalEarned ?? 0,
+        totalSpent: data?.totalSpent ?? 0,
+        welcomeBonus: data?.welcomeBonus ?? 0,
+        recentTransactions: data?.recentTransactions || [],
+      };
+    } catch (err) {
+      console.warn('Failed to fetch wallet summary from API:', err.message);
+      return {
+        balance: 100,
+        totalEarned: 100,
+        totalSpent: 0,
+        welcomeBonus: 100,
+        recentTransactions: initialTransactions.slice(0, 5),
+      };
     }
-
-    // Update balances
-    map[fromUserId] = currentBalance - amount;
-    map[toUserId] = (map[toUserId] || 0) + amount;
-    saveCredits(map);
-
-    // Create transaction records
-    const txns = getTransactions();
-    const spentTxn = {
-      id: 'txn_' + Date.now(),
-      userId: fromUserId,
-      type: 'spent',
-      amount,
-      description,
-      fromUserId: toUserId,
-      sessionId,
-      createdAt: new Date().toISOString(),
-    };
-    const earnedTxn = {
-      id: 'txn_' + (Date.now() + 1),
-      userId: toUserId,
-      type: 'earned',
-      amount,
-      description: description.replace('Learned', 'Taught'),
-      fromUserId,
-      sessionId,
-      createdAt: new Date().toISOString(),
-    };
-    txns.push(spentTxn, earnedTxn);
-    saveTransactions(txns);
-
-    return { success: true, newBalance: map[fromUserId] };
   },
 
-  getAllBalances() {
-    return getCreditsMap();
+  /**
+   * Get current available credit balance
+   */
+  async getBalance() {
+    const summary = await this.getWalletSummary();
+    return summary.balance;
   },
 
+  /**
+   * Get full chronological transaction history
+   */
+  async getTransactionHistory() {
+    try {
+      const data = await api.get('/credits/transactions');
+      return data?.transactions || [];
+    } catch (err) {
+      console.warn('Failed to fetch transaction history from API:', err.message);
+      return initialTransactions;
+    }
+  },
+
+  /**
+   * Synchronous / fallback helpers for legacy components
+   */
   resetCredits() {
-    localStorage.removeItem(TRANSACTIONS_KEY);
-    localStorage.removeItem(CREDITS_KEY);
+    localStorage.removeItem('skillxchange_transactions');
+    localStorage.removeItem('skillxchange_credits');
   },
 };
+
+export default creditService;

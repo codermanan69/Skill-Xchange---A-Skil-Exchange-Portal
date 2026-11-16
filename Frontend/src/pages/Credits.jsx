@@ -1,10 +1,22 @@
 // ═══════════════════════════════════════════════
 // Skill Xchange — Credits / Wallet Page
+// Integrates with backend APIs at /api/credits
 // ═══════════════════════════════════════════════
 
-import { Coins, TrendingUp, TrendingDown, Gift, ArrowUpRight, ArrowDownRight, Sparkles } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import {
+  Coins,
+  TrendingUp,
+  TrendingDown,
+  Gift,
+  ArrowUpRight,
+  ArrowDownRight,
+  Sparkles,
+  Loader2,
+} from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useApp } from '../context/AppContext';
+import { creditService } from '../services/creditService';
 import { getUserById } from '../data/users';
 import Avatar from '../components/Avatar';
 import StatusBadge from '../components/StatusBadge';
@@ -12,22 +24,53 @@ import EmptyState from '../components/EmptyState';
 
 export default function Credits() {
   const { currentUser } = useAuth();
-  const { getBalance, getTransactionHistory, refreshKey } = useApp();
+  const { refreshKey } = useApp();
+
+  const [summary, setSummary] = useState({
+    balance: 0,
+    totalEarned: 0,
+    totalSpent: 0,
+    welcomeBonus: 0,
+  });
+  const [transactions, setTransactions] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const fetchWalletData = useCallback(async () => {
+    try {
+      const [walletData, txnsData] = await Promise.all([
+        creditService.getWalletSummary(),
+        creditService.getTransactionHistory(),
+      ]);
+
+      setSummary(walletData);
+      setTransactions(txnsData || []);
+    } catch (err) {
+      console.warn('Failed to load credit data:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  const currentUserId = currentUser?.id || currentUser?._id;
+
+  useEffect(() => {
+    if (currentUserId) {
+      fetchWalletData();
+    }
+  }, [fetchWalletData, refreshKey, currentUserId]);
 
   if (!currentUser) return null;
 
-  const balance = getBalance(currentUser.id);
-  const transactions = getTransactionHistory(currentUser.id);
-
-  const totalEarned = transactions.filter((t) => t.type === 'earned' || t.type === 'bonus').reduce((sum, t) => sum + t.amount, 0);
-  const totalSpent = transactions.filter((t) => t.type === 'spent').reduce((sum, t) => sum + t.amount, 0);
-
   const getTransactionIcon = (type) => {
     switch (type) {
-      case 'earned': return <ArrowUpRight size={16} className="text-success-500" />;
-      case 'spent': return <ArrowDownRight size={16} className="text-danger-500" />;
-      case 'bonus': return <Gift size={16} className="text-accent-500" />;
-      default: return <Coins size={16} className="text-surface-400" />;
+      case 'earned':
+        return <ArrowUpRight size={16} className="text-success-500" />;
+      case 'spent':
+        return <ArrowDownRight size={16} className="text-danger-500" />;
+      case 'bonus':
+        return <Gift size={16} className="text-accent-500" />;
+      default:
+        return <Coins size={16} className="text-surface-400" />;
     }
   };
 
@@ -46,7 +89,7 @@ export default function Credits() {
           <p className="text-sm text-white/70 font-medium mb-1">Available Balance</p>
           <div className="flex items-center gap-3 mb-6">
             <Coins size={32} className="text-warning-300" />
-            <span className="text-4xl sm:text-5xl font-bold">{balance}</span>
+            <span className="text-4xl sm:text-5xl font-bold">{summary.balance}</span>
             <span className="text-lg text-white/70">credits</span>
           </div>
           <div className="flex flex-wrap gap-6">
@@ -54,14 +97,14 @@ export default function Credits() {
               <p className="text-xs text-white/50 uppercase tracking-wider">Total Earned</p>
               <p className="text-xl font-semibold flex items-center gap-1">
                 <TrendingUp size={16} className="text-green-300" />
-                +{totalEarned}
+                +{summary.totalEarned}
               </p>
             </div>
             <div>
               <p className="text-xs text-white/50 uppercase tracking-wider">Total Spent</p>
               <p className="text-xl font-semibold flex items-center gap-1">
                 <TrendingDown size={16} className="text-red-300" />
-                -{totalSpent}
+                -{summary.totalSpent}
               </p>
             </div>
           </div>
@@ -96,10 +139,21 @@ export default function Credits() {
         <div className="px-5 py-4 border-b border-surface-100">
           <h3 className="text-base font-semibold text-surface-900">Transaction History</h3>
         </div>
-        {transactions.length > 0 ? (
+        {isLoading ? (
+          <div className="flex justify-center py-16">
+            <div className="flex items-center gap-2 text-surface-400 text-sm">
+              <Loader2 size={20} className="animate-spin text-primary-500" />
+              Loading transactions...
+            </div>
+          </div>
+        ) : transactions.length > 0 ? (
           <div className="divide-y divide-surface-100">
             {transactions.map((txn) => {
-              const otherUser = txn.fromUserId ? getUserById(txn.fromUserId) : null;
+              const otherUserRaw = txn.fromUser || txn.fromUserId;
+              const otherUser = typeof otherUserRaw === 'object' && otherUserRaw !== null
+                ? otherUserRaw
+                : (otherUserRaw ? getUserById(otherUserRaw) : null);
+
               return (
                 <div key={txn.id} className="px-5 py-4 flex items-center gap-4 hover:bg-surface-50 transition-colors">
                   <div className="w-10 h-10 rounded-xl bg-surface-50 flex items-center justify-center">

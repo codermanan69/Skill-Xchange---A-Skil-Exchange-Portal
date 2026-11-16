@@ -4,7 +4,7 @@
 // ═══════════════════════════════════════════════
 
 import { useState } from 'react';
-import { User, Bell, Shield, Save, Loader2 } from 'lucide-react';
+import { User, Bell, Shield, Save, Loader2, Plus } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 import { userService } from '../services/userService';
@@ -15,25 +15,71 @@ export default function Settings() {
   const { currentUser, updateCurrentUser } = useAuth();
   const [activeTab, setActiveTab] = useState('profile');
   const [isSaving, setIsSaving] = useState(false);
-
-  if (!currentUser) return null;
+  const [newTeachSkill, setNewTeachSkill] = useState('');
+  const [newLearnSkill, setNewLearnSkill] = useState('');
 
   const [profile, setProfile] = useState({
-    name: currentUser.name || '',
-    title: currentUser.title || '',
-    bio: currentUser.bio || '',
-    location: currentUser.location || '',
-    email: currentUser.email || '',
+    name: currentUser?.name || '',
+    title: currentUser?.title || '',
+    bio: currentUser?.bio || '',
+    location: currentUser?.location || '',
+    email: currentUser?.email || '',
+    skillsTeaching: [...(currentUser?.skillsTeaching || [])],
+    skillsLearning: [...(currentUser?.skillsLearning || [])],
   });
 
   const [notifSettings, setNotifSettings] = useState({
-    emailRequests: currentUser.notificationPreferences?.emailRequests ?? true,
-    emailSessions: currentUser.notificationPreferences?.emailSessions ?? true,
-    emailCredits: currentUser.notificationPreferences?.emailCredits ?? true,
-    pushRequests: currentUser.notificationPreferences?.pushRequests ?? true,
-    pushSessions: currentUser.notificationPreferences?.pushSessions ?? true,
-    pushCredits: currentUser.notificationPreferences?.pushCredits ?? false,
+    emailRequests: currentUser?.notificationPreferences?.emailRequests ?? true,
+    emailSessions: currentUser?.notificationPreferences?.emailSessions ?? true,
+    emailCredits: currentUser?.notificationPreferences?.emailCredits ?? true,
+    pushRequests: currentUser?.notificationPreferences?.pushRequests ?? true,
+    pushSessions: currentUser?.notificationPreferences?.pushSessions ?? true,
+    pushCredits: currentUser?.notificationPreferences?.pushCredits ?? false,
   });
+
+  if (!currentUser) return null;
+
+  const handleAddTeachSkill = () => {
+    const trimmed = newTeachSkill.trim();
+    if (!trimmed) return;
+    if (profile.skillsTeaching.includes(trimmed)) {
+      toast.error('Skill already in list');
+      return;
+    }
+    setProfile((prev) => ({
+      ...prev,
+      skillsTeaching: [...prev.skillsTeaching, trimmed],
+    }));
+    setNewTeachSkill('');
+  };
+
+  const handleRemoveTeachSkill = (skill) => {
+    setProfile((prev) => ({
+      ...prev,
+      skillsTeaching: prev.skillsTeaching.filter((s) => s !== skill),
+    }));
+  };
+
+  const handleAddLearnSkill = () => {
+    const trimmed = newLearnSkill.trim();
+    if (!trimmed) return;
+    if (profile.skillsLearning.includes(trimmed)) {
+      toast.error('Skill already in list');
+      return;
+    }
+    setProfile((prev) => ({
+      ...prev,
+      skillsLearning: [...prev.skillsLearning, trimmed],
+    }));
+    setNewLearnSkill('');
+  };
+
+  const handleRemoveLearnSkill = (skill) => {
+    setProfile((prev) => ({
+      ...prev,
+      skillsLearning: prev.skillsLearning.filter((s) => s !== skill),
+    }));
+  };
 
   const handleSaveProfile = async () => {
     setIsSaving(true);
@@ -43,6 +89,8 @@ export default function Settings() {
         title: profile.title,
         bio: profile.bio,
         location: profile.location,
+        skillsTeaching: profile.skillsTeaching,
+        skillsLearning: profile.skillsLearning,
       });
       if (updated) {
         updateCurrentUser(updated);
@@ -160,22 +208,63 @@ export default function Settings() {
             </div>
           </div>
 
-          {/* Skills Display */}
+          {/* Skills Teaching */}
           <div>
             <label className="block text-sm font-medium text-surface-700 mb-2">Teaching Skills</label>
-            <div className="flex flex-wrap gap-2">
-              {(currentUser.skillsTeaching || []).map((s) => (
-                <SkillTag key={s} name={s} size="md" />
+            <div className="flex flex-wrap gap-2 mb-3">
+              {profile.skillsTeaching.map((s) => (
+                <SkillTag key={s} name={s} size="md" removable onRemove={() => handleRemoveTeachSkill(s)} />
               ))}
+              {profile.skillsTeaching.length === 0 && (
+                <p className="text-xs text-surface-400">No skills added yet.</p>
+              )}
+            </div>
+            <div className="flex gap-2 max-w-sm">
+              <input
+                type="text"
+                value={newTeachSkill}
+                onChange={(e) => setNewTeachSkill(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddTeachSkill(); }}}
+                placeholder="Add a skill you teach..."
+                className="flex-1 px-3 py-2 rounded-lg border border-surface-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+              />
+              <button
+                type="button"
+                onClick={handleAddTeachSkill}
+                className="px-3 py-2 bg-surface-100 hover:bg-surface-200 text-surface-700 rounded-lg text-sm font-medium transition-colors cursor-pointer flex items-center gap-1"
+              >
+                <Plus size={14} /> Add
+              </button>
             </div>
           </div>
 
+          {/* Skills Learning */}
           <div>
             <label className="block text-sm font-medium text-surface-700 mb-2">Learning Interests</label>
-            <div className="flex flex-wrap gap-2">
-              {(currentUser.skillsLearning || []).map((s) => (
-                <SkillTag key={s} name={s} size="md" />
+            <div className="flex flex-wrap gap-2 mb-3">
+              {profile.skillsLearning.map((s) => (
+                <SkillTag key={s} name={s} size="md" removable onRemove={() => handleRemoveLearnSkill(s)} />
               ))}
+              {profile.skillsLearning.length === 0 && (
+                <p className="text-xs text-surface-400">No learning interests added yet.</p>
+              )}
+            </div>
+            <div className="flex gap-2 max-w-sm">
+              <input
+                type="text"
+                value={newLearnSkill}
+                onChange={(e) => setNewLearnSkill(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddLearnSkill(); }}}
+                placeholder="Add a skill you want to learn..."
+                className="flex-1 px-3 py-2 rounded-lg border border-surface-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+              />
+              <button
+                type="button"
+                onClick={handleAddLearnSkill}
+                className="px-3 py-2 bg-surface-100 hover:bg-surface-200 text-surface-700 rounded-lg text-sm font-medium transition-colors cursor-pointer flex items-center gap-1"
+              >
+                <Plus size={14} /> Add
+              </button>
             </div>
           </div>
 

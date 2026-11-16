@@ -1,101 +1,112 @@
 // ═══════════════════════════════════════════════
-// Skill Xchange — Session Service
-// Currently uses localStorage. Replace with API calls later.
+// Skill Xchange — Sessions Service
+// Integrates with backend APIs at /api/sessions
 // ═══════════════════════════════════════════════
 
+import { api } from './api';
 import { initialSessions } from '../data/sessions';
 
-const SESSIONS_KEY = 'skillxchange_sessions';
-
-function getSessions() {
-  const data = localStorage.getItem(SESSIONS_KEY);
-  return data ? JSON.parse(data) : [...initialSessions];
-}
-
-function saveSessions(sessions) {
-  localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
-}
-
 export const sessionService = {
-  getAllSessions() {
-    return getSessions();
+  /**
+   * Fetch all user sessions (filtered by status or all)
+   * @param {string} [status] 'scheduled' | 'completed' | 'cancelled'
+   */
+  async getSessions(status) {
+    try {
+      const endpoint = status ? `/sessions?status=${status}` : '/sessions';
+      const data = await api.get(endpoint);
+      return {
+        sessions: data?.sessions || [],
+        upcoming: data?.upcoming || [],
+        completed: data?.completed || [],
+      };
+    } catch (err) {
+      console.warn('Failed to fetch sessions from API:', err.message);
+      return {
+        sessions: initialSessions,
+        upcoming: initialSessions.filter((s) => s.status === 'scheduled'),
+        completed: initialSessions.filter((s) => s.status === 'completed'),
+      };
+    }
   },
 
-  getUserSessions(userId) {
-    return getSessions().filter(
-      (s) => s.teacherId === userId || s.learnerId === userId
-    );
+  /**
+   * Fetch upcoming scheduled sessions
+   */
+  async getUpcomingSessions() {
+    const res = await this.getSessions('scheduled');
+    return res.upcoming || [];
   },
 
-  getUpcomingSessions(userId) {
-    return this.getUserSessions(userId).filter((s) => s.status === 'scheduled');
+  /**
+   * Fetch completed sessions
+   */
+  async getCompletedSessions() {
+    const res = await this.getSessions('completed');
+    return res.completed || [];
   },
 
-  getCompletedSessions(userId) {
-    return this.getUserSessions(userId).filter((s) => s.status === 'completed');
+  /**
+   * Fetch a single session by ID
+   */
+  async getSessionById(sessionId) {
+    const data = await api.get(`/sessions/${sessionId}`);
+    return data?.session || null;
   },
 
-  createSession({ requestId, teacherId, learnerId, skill, topic, date, time, duration }) {
-    const sessions = getSessions();
-    const newSession = {
-      id: 'ses_' + Date.now(),
-      requestId,
-      teacherId,
-      learnerId,
-      skill,
-      topic,
-      date,
-      time,
-      duration: duration || 60,
-      status: 'scheduled',
-      meetingLink: `https://meet.google.com/${Math.random().toString(36).substring(2, 5)}-${Math.random().toString(36).substring(2, 6)}-${Math.random().toString(36).substring(2, 5)}`,
-      notes: '',
-      rating: null,
-      review: null,
-      completedAt: null,
-      creditsTransferred: 0,
+  /**
+   * Schedule a new session
+   * @param {Object} data { requestId, partnerId, teacherId, learnerId, skill, topic, date, time, duration }
+   */
+  async createSession(data) {
+    const payload = {
+      ...data,
+      duration: Number(data.duration) || 60,
     };
-    sessions.push(newSession);
-    saveSessions(sessions);
-    return newSession;
+    const res = await api.post('/sessions', payload);
+    return res?.session;
   },
 
-  completeSession(sessionId) {
-    const sessions = getSessions();
-    const index = sessions.findIndex((s) => s.id === sessionId);
-    if (index !== -1) {
-      sessions[index].status = 'completed';
-      sessions[index].completedAt = new Date().toISOString();
-      saveSessions(sessions);
-      return sessions[index];
-    }
-    return null;
+  /**
+   * Update or reschedule a session
+   */
+  async updateSession(sessionId, updates) {
+    const res = await api.patch(`/sessions/${sessionId}`, updates);
+    return res?.session;
   },
 
-  rateSession(sessionId, rating, review) {
-    const sessions = getSessions();
-    const index = sessions.findIndex((s) => s.id === sessionId);
-    if (index !== -1) {
-      sessions[index].rating = rating;
-      sessions[index].review = review;
-      saveSessions(sessions);
-      return sessions[index];
-    }
-    return null;
+  /**
+   * Complete a session and settle credits
+   * @param {string} sessionId
+   * @param {Object} [details] { creditAmount, rating, review }
+   */
+  async completeSession(sessionId, details = {}) {
+    const res = await api.patch(`/sessions/${sessionId}/complete`, details);
+    return res?.session;
   },
 
-  transferCredits(sessionId, amount) {
-    const sessions = getSessions();
-    const index = sessions.findIndex((s) => s.id === sessionId);
-    if (index !== -1) {
-      sessions[index].creditsTransferred = amount;
-      saveSessions(sessions);
-      return sessions[index];
-    }
-    return null;
+  /**
+   * Cancel a scheduled session
+   */
+  async cancelSession(sessionId) {
+    const res = await api.patch(`/sessions/${sessionId}/cancel`);
+    return res?.session;
   },
 
+  /**
+   * Submit review and rating for a completed session
+   */
+  async rateSession(sessionId, rating, review) {
+    const res = await api.post(`/sessions/${sessionId}/review`, { rating, review });
+    return res?.session;
+  },
+
+  /**
+   * Fallback reset
+   */
   resetSessions() {
-    localStorage.removeItem(SESSIONS_KEY);
+    localStorage.removeItem('skillxchange_sessions');
   },
 };
+
+export default sessionService;

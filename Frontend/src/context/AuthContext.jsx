@@ -81,6 +81,19 @@ export function AuthProvider({ children }) {
     setCurrentUser((prev) => ({ ...prev, ...updatedUser }));
   }, []);
 
+  const reloadUser = useCallback(async () => {
+    try {
+      const user = await authService.getMe();
+      if (user) {
+        setCurrentUser(user);
+      }
+      return user;
+    } catch (err) {
+      console.warn('Failed to reload current user:', err);
+      return null;
+    }
+  }, []);
+
   const value = {
     currentUser,
     isLoading,
@@ -91,6 +104,7 @@ export function AuthProvider({ children }) {
     logout,
     switchUser,
     updateCurrentUser,
+    reloadUser,
     allUsers: users,
   };
 

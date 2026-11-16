@@ -84,8 +84,16 @@ export const userService = {
     return defaultUsers.filter((u) => u.id !== currentUserId);
   },
 
-  getSkillMatches(currentUserId) {
-    const currentUser = getDefaultUserById(currentUserId);
+  getSkillMatches(currentUserId, currentUserObj = null) {
+    let currentUser = currentUserObj || getDefaultUserById(currentUserId);
+    if (!currentUser) {
+      try {
+        const stored = localStorage.getItem('skillxchange_user');
+        if (stored) currentUser = JSON.parse(stored);
+      } catch (err) {
+        currentUser = null;
+      }
+    }
     if (!currentUser) return [];
 
     return defaultUsers

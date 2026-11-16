@@ -44,6 +44,7 @@ const createSession = async (req, res) => {
       partnerId,
       teacherId,
       learnerId,
+      role,
       skill,
       topic,
       date,
@@ -103,20 +104,38 @@ const createSession = async (req, res) => {
         });
       }
 
-      // Determine teacher and learner if not explicitly provided
-      if (!finalTeacherId || !finalLearnerId) {
-        if (skill && skill.toLowerCase() === linkedRequest.skillWanted.toLowerCase()) {
-          finalTeacherId = reqTo;
-          finalLearnerId = reqFrom;
+      const otherUserId = currentUserId === reqFrom ? reqTo : reqFrom;
+
+      // Validate teacherId & learnerId if both provided
+      if (finalTeacherId && finalLearnerId) {
+        const t = finalTeacherId.toString();
+        const l = finalLearnerId.toString();
+        if (!((t === reqFrom && l === reqTo) || (t === reqTo && l === reqFrom))) {
+          return res.status(400).json({
+            success: false,
+            message: "Specified teacher and learner must be the participants in this request",
+          });
+        }
+      } else if (role === "teacher") {
+        finalTeacherId = currentUserId;
+        finalLearnerId = otherUserId;
+      } else if (role === "learner") {
+        finalTeacherId = otherUserId;
+        finalLearnerId = currentUserId;
+      } else {
+        // Fallback role resolution
+        if (req.user.skillsTeaching && req.user.skillsTeaching.includes(skill)) {
+          finalTeacherId = currentUserId;
+          finalLearnerId = otherUserId;
         } else if (skill && skill.toLowerCase() === linkedRequest.skillOffered.toLowerCase()) {
           finalTeacherId = reqFrom;
           finalLearnerId = reqTo;
-        } else if (req.user.skillsTeaching.includes(skill)) {
-          finalTeacherId = currentUserId;
-          finalLearnerId = currentUserId === reqFrom ? reqTo : reqFrom;
+        } else if (skill && skill.toLowerCase() === linkedRequest.skillWanted.toLowerCase()) {
+          finalTeacherId = reqTo;
+          finalLearnerId = reqFrom;
         } else {
-          finalTeacherId = currentUserId === reqFrom ? reqTo : reqFrom;
-          finalLearnerId = currentUserId;
+          finalTeacherId = reqTo;
+          finalLearnerId = reqFrom;
         }
       }
     } else {
@@ -136,10 +155,27 @@ const createSession = async (req, res) => {
           });
         }
 
-        // Check if current user is teaching this skill
-        const isTeaching = req.user.skillsTeaching.includes(skill);
-        finalTeacherId = isTeaching ? currentUserId : partnerId;
-        finalLearnerId = isTeaching ? partnerId : currentUserId;
+        const pId = partnerId.toString();
+        if (finalTeacherId && finalLearnerId) {
+          const t = finalTeacherId.toString();
+          const l = finalLearnerId.toString();
+          if (!((t === currentUserId && l === pId) || (t === pId && l === currentUserId))) {
+            return res.status(400).json({
+              success: false,
+              message: "Specified teacher and learner must match you and your partner",
+            });
+          }
+        } else if (role === "teacher") {
+          finalTeacherId = currentUserId;
+          finalLearnerId = pId;
+        } else if (role === "learner") {
+          finalTeacherId = pId;
+          finalLearnerId = currentUserId;
+        } else {
+          const isTeaching = req.user.skillsTeaching && req.user.skillsTeaching.includes(skill);
+          finalTeacherId = isTeaching ? currentUserId : pId;
+          finalLearnerId = isTeaching ? pId : currentUserId;
+        }
       }
     }
 
@@ -516,11 +552,23 @@ const completeSession = async (req, res) => {
 
     // 5. Deduct from learner, add to teacher
     if (transferAmount > 0) {
-      await User.findByIdAndUpdate(
-        learnerId,
+      const updatedLearner = await User.findOneAndUpdate(
+        { _id: learnerId, credits: { $gte: transferAmount } },
         { $inc: { credits: -transferAmount, totalSessions: 1 } },
-        sessionOpts
+        { returnDocument: "after", ...sessionOpts }
       );
+
+      if (!updatedLearner) {
+        if (useTransaction && dbSession) {
+          await dbSession.abortTransaction();
+          dbSession.endSession();
+          dbSession = null;
+        }
+        return res.status(400).json({
+          success: false,
+          message: "Insufficient credits. Learner does not have enough credits to complete this session.",
+        });
+      }
 
       await User.findByIdAndUpdate(
         teacherId,

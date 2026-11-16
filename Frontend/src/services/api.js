@@ -43,7 +43,7 @@ async function request(endpoint, options = {}) {
   try {
     response = await fetch(url, config);
   } catch (err) {
-    throw new Error('Unable to connect to the backend server. Please verify the backend is running.');
+    throw new Error('Unable to connect to the backend server. Please verify the backend is running.', { cause: err });
   }
 
   let data = null;

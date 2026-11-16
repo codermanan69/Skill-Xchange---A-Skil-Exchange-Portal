@@ -19,6 +19,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useApp } from '../context/AppContext';
 import { userService } from '../services/userService';
+import { sessionService } from '../services/sessionService';
 import { getUserById } from '../data/users';
 import Avatar from '../components/Avatar';
 import SkillTag from '../components/SkillTag';
@@ -27,8 +28,9 @@ import StarRating from '../components/StarRating';
 export default function Profile() {
   const { userId } = useParams();
   const { currentUser } = useAuth();
-  const { getBalance, getCompletedSessions, refreshKey } = useApp();
+  const { getBalance, refreshKey } = useApp();
   const [user, setUser] = useState(null);
+  const [completedSessions, setCompletedSessions] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const navigate = useNavigate();
 
@@ -37,9 +39,18 @@ export default function Profile() {
     async function fetchUserProfile() {
       setIsLoading(true);
       try {
-        const profileData = await userService.getUserById(userId);
+        const [profileData, sessionsData] = await Promise.allSettled([
+          userService.getUserById(userId),
+          sessionService.getSessions('completed'),
+        ]);
+
         if (isMounted) {
-          setUser(profileData);
+          if (profileData.status === 'fulfilled') {
+            setUser(profileData.value);
+          }
+          if (sessionsData.status === 'fulfilled') {
+            setCompletedSessions(sessionsData.value?.completed || []);
+          }
         }
       } catch (err) {
         console.warn('Could not fetch user profile:', err);
@@ -56,7 +67,7 @@ export default function Profile() {
     return () => {
       isMounted = false;
     };
-  }, [userId]);
+  }, [userId, refreshKey]);
 
   if (isLoading) {
     return (
@@ -79,14 +90,16 @@ export default function Profile() {
 
   const isOwnProfile = (currentUser?.id || currentUser?._id) === (user.id || user._id);
   const balance = user.credits ?? getBalance(user.id || user._id);
-  const completedSessions = getCompletedSessions(user.id || user._id);
 
-  // Get reviews from completed sessions
+  // Get reviews from completed sessions where this user was the teacher
   const reviews = completedSessions
-    .filter((s) => s.rating && (s.teacherId === (user.id || user._id)))
+    .filter((s) => {
+      const teacherId = s.teacher?._id ? s.teacher._id.toString() : (s.teacher?.id || s.teacherId);
+      return s.rating && teacherId === (user.id || user._id);
+    })
     .map((s) => ({
       ...s,
-      reviewer: getUserById(s.learnerId),
+      reviewer: typeof s.learner === 'object' && s.learner !== null ? s.learner : getUserById(s.learnerId),
     }));
 
   return (

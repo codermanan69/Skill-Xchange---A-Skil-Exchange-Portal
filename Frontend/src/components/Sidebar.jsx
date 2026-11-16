@@ -6,7 +6,6 @@ import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard,
   Compass,
-  User,
   MessageSquare,
   Send,
   Calendar,
