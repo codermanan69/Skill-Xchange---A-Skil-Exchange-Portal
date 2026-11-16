@@ -1,94 +1,131 @@
 // ═══════════════════════════════════════════════
 // Skill Xchange — Auth Service
-// Currently uses localStorage. Replace with API calls later.
+// Integrates with real backend APIs at /api/auth
 // ═══════════════════════════════════════════════
 
-import { users, CURRENT_USER_KEY } from '../data/users';
-
-const AUTH_KEY = 'skillxchange_auth';
+import { api, TOKEN_KEY, USER_KEY } from './api';
+import { users } from '../data/users';
 
 export const authService = {
   /**
    * Login with email and password
-   * @returns {Object|null} user object or null
+   * @param {string} email
+   * @param {string} password
+   * @returns {Promise<Object>} user object
    */
-  login(email, password) {
-    const user = users.find(
-      (u) => u.email === email && u.password === password
-    );
-    if (user) {
-      localStorage.setItem(AUTH_KEY, JSON.stringify({ isLoggedIn: true, userId: user.id }));
-      localStorage.setItem(CURRENT_USER_KEY, user.id);
-      return { ...user };
+  async login(email, password) {
+    const data = await api.post('/auth/login', {
+      email: email.trim(),
+      password,
+    });
+    if (data.token) {
+      localStorage.setItem(TOKEN_KEY, data.token);
     }
-    return null;
+    if (data.user) {
+      localStorage.setItem(USER_KEY, JSON.stringify(data.user));
+    }
+    return data.user;
+  },
+
+  /**
+   * Register a new user
+   * @param {Object} userData
+   * @returns {Promise<Object>} user object
+   */
+  async register(userData) {
+    const data = await api.post('/auth/register', userData);
+    if (data.token) {
+      localStorage.setItem(TOKEN_KEY, data.token);
+    }
+    if (data.user) {
+      localStorage.setItem(USER_KEY, JSON.stringify(data.user));
+    }
+    return data.user;
   },
 
   /**
    * Login directly with a user ID (for demo switcher)
+   * Tries to login with demo credentials; registers first in backend if not yet present
    */
-  loginAs(userId) {
-    const user = users.find((u) => u.id === userId);
-    if (user) {
-      localStorage.setItem(AUTH_KEY, JSON.stringify({ isLoggedIn: true, userId: user.id }));
-      localStorage.setItem(CURRENT_USER_KEY, user.id);
-      return { ...user };
+  async loginAs(userId) {
+    const demoUser = users.find((u) => u.id === userId || u.email === userId);
+    if (!demoUser) {
+      throw new Error('Demo user not found');
     }
-    return null;
+
+    const password = demoUser.password || 'demo123';
+
+    try {
+      return await this.login(demoUser.email, password);
+    } catch (err) {
+      // If user does not exist in backend yet, auto-register them
+      if (err.message && (err.message.toLowerCase().includes('invalid') || err.status === 401)) {
+        return await this.register({
+          name: demoUser.name,
+          email: demoUser.email,
+          password: password,
+          title: demoUser.title || '',
+          bio: demoUser.bio || '',
+          location: demoUser.location || '',
+          skillsTeaching: demoUser.skillsTeaching || [],
+          skillsLearning: demoUser.skillsLearning || [],
+        });
+      }
+      throw err;
+    }
   },
 
   /**
-   * Register a new user (simulated)
+   * Get current authenticated user from backend
    */
-  register(userData) {
-    // In a real app, this would POST to /api/auth/register
-    const newUser = {
-      id: 'user_' + Date.now(),
-      ...userData,
-      avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${userData.name}&backgroundColor=b6e3f4`,
-      rating: 0,
-      totalReviews: 0,
-      totalSessions: 0,
-      credits: 100, // Welcome bonus
-      isOnline: true,
-      joinedDate: new Date().toISOString().split('T')[0],
-    };
-    localStorage.setItem(AUTH_KEY, JSON.stringify({ isLoggedIn: true, userId: newUser.id }));
-    localStorage.setItem(CURRENT_USER_KEY, newUser.id);
-    return newUser;
+  async getMe() {
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (!token) return null;
+
+    try {
+      const data = await api.get('/auth/me');
+      if (data?.user) {
+        localStorage.setItem(USER_KEY, JSON.stringify(data.user));
+        return data.user;
+      }
+    } catch (err) {
+      console.warn('Failed to fetch current user profile:', err.message);
+      if (err.status === 401) {
+        this.logout();
+        return null;
+      }
+    }
+
+    return this.getCurrentAuth();
   },
 
   /**
    * Logout
    */
   logout() {
-    localStorage.removeItem(AUTH_KEY);
-    localStorage.removeItem(CURRENT_USER_KEY);
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
   },
 
   /**
-   * Get current auth state
+   * Get cached user synchronously from localStorage
    */
   getCurrentAuth() {
-    const data = localStorage.getItem(AUTH_KEY);
+    const data = localStorage.getItem(USER_KEY);
     if (data) {
-      const parsed = JSON.parse(data);
-      if (parsed.isLoggedIn) {
-        const user = users.find((u) => u.id === parsed.userId);
-        return user ? { ...user } : null;
+      try {
+        return JSON.parse(data);
+      } catch {
+        return null;
       }
     }
     return null;
   },
 
   /**
-   * Check if user is authenticated
+   * Check if token is present
    */
   isAuthenticated() {
-    const data = localStorage.getItem(AUTH_KEY);
-    if (data) {
-      return JSON.parse(data).isLoggedIn === true;
-    }
-    return false;
+    return !!localStorage.getItem(TOKEN_KEY);
   },
 };

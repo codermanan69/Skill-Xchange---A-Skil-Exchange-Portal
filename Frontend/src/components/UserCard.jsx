@@ -13,7 +13,7 @@ export default function UserCard({ user, matchingSkills = [], reverseMatch = [],
   return (
     <div
       className="bg-white rounded-xl border border-surface-200 p-5 hover:shadow-lg hover:border-primary-200 transition-all duration-300 cursor-pointer group"
-      onClick={() => navigate(`/profile/${user.id}`)}
+      onClick={() => navigate(`/profile/${user.id || user._id}`)}
     >
       {/* Header */}
       <div className="flex items-start gap-3 mb-3">

@@ -1,7 +1,9 @@
 // ═══════════════════════════════════════════════
 // Skill Xchange — User Profile Page
+// Integrates with backend GET /api/users/:id
 // ═══════════════════════════════════════════════
 
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   MapPin,
@@ -12,22 +14,60 @@ import {
   Coins,
   MessageSquare,
   ArrowRightLeft,
+  Loader2,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useApp } from '../context/AppContext';
+import { userService } from '../services/userService';
 import { getUserById } from '../data/users';
 import Avatar from '../components/Avatar';
 import SkillTag from '../components/SkillTag';
 import StarRating from '../components/StarRating';
-import CreditBadge from '../components/CreditBadge';
 
 export default function Profile() {
   const { userId } = useParams();
   const { currentUser } = useAuth();
   const { getBalance, getCompletedSessions, refreshKey } = useApp();
+  const [user, setUser] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
   const navigate = useNavigate();
 
-  const user = getUserById(userId);
+  useEffect(() => {
+    let isMounted = true;
+    async function fetchUserProfile() {
+      setIsLoading(true);
+      try {
+        const profileData = await userService.getUserById(userId);
+        if (isMounted) {
+          setUser(profileData);
+        }
+      } catch (err) {
+        console.warn('Could not fetch user profile:', err);
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    if (userId) {
+      fetchUserProfile();
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, [userId]);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="flex items-center gap-2 text-surface-400 text-sm">
+          <Loader2 size={20} className="animate-spin text-primary-500" />
+          Loading user profile...
+        </div>
+      </div>
+    );
+  }
 
   if (!user) {
     return (
@@ -37,13 +77,13 @@ export default function Profile() {
     );
   }
 
-  const isOwnProfile = currentUser?.id === user.id;
-  const balance = getBalance(user.id);
-  const completedSessions = getCompletedSessions(user.id);
+  const isOwnProfile = (currentUser?.id || currentUser?._id) === (user.id || user._id);
+  const balance = user.credits ?? getBalance(user.id || user._id);
+  const completedSessions = getCompletedSessions(user.id || user._id);
 
   // Get reviews from completed sessions
   const reviews = completedSessions
-    .filter((s) => s.rating && (s.teacherId === user.id))
+    .filter((s) => s.rating && (s.teacherId === (user.id || user._id)))
     .map((s) => ({
       ...s,
       reviewer: getUserById(s.learnerId),
@@ -66,14 +106,14 @@ export default function Profile() {
               <div className="flex gap-2">
                 <button
                   onClick={() => navigate('/chat')}
-                  className="px-4 py-2 border border-surface-200 text-surface-600 rounded-lg text-sm font-medium hover:bg-surface-50 transition-colors flex items-center gap-2"
+                  className="px-4 py-2 border border-surface-200 text-surface-600 rounded-lg text-sm font-medium hover:bg-surface-50 transition-colors flex items-center gap-2 cursor-pointer"
                 >
                   <MessageSquare size={14} />
                   Message
                 </button>
                 <button
                   onClick={() => navigate('/discover')}
-                  className="px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-semibold hover:bg-primary-700 transition-colors flex items-center gap-2"
+                  className="px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-semibold hover:bg-primary-700 transition-colors flex items-center gap-2 cursor-pointer"
                 >
                   <ArrowRightLeft size={14} />
                   Exchange
@@ -83,7 +123,7 @@ export default function Profile() {
             {isOwnProfile && (
               <button
                 onClick={() => navigate('/settings')}
-                className="px-4 py-2 border border-surface-200 text-surface-600 rounded-lg text-sm font-medium hover:bg-surface-50 transition-colors"
+                className="px-4 py-2 border border-surface-200 text-surface-600 rounded-lg text-sm font-medium hover:bg-surface-50 transition-colors cursor-pointer"
               >
                 Edit Profile
               </button>
@@ -101,21 +141,23 @@ export default function Profile() {
                 <MapPin size={14} /> {user.location}
               </span>
             )}
-            <span className="flex items-center gap-1">
-              <Calendar size={14} /> Joined {new Date(user.joinedDate).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
-            </span>
+            {user.joinedDate && (
+              <span className="flex items-center gap-1">
+                <Calendar size={14} /> Joined {new Date(user.joinedDate).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+              </span>
+            )}
           </div>
 
           {/* Stats */}
           <div className="flex flex-wrap gap-4 mt-5 pt-5 border-t border-surface-100">
             <div className="flex items-center gap-2">
               <Star size={16} className="text-warning-500" />
-              <span className="text-sm font-semibold text-surface-800">{user.rating}</span>
-              <span className="text-sm text-surface-400">({user.totalReviews} reviews)</span>
+              <span className="text-sm font-semibold text-surface-800">{user.rating || 0}</span>
+              <span className="text-sm text-surface-400">({user.totalReviews || 0} reviews)</span>
             </div>
             <div className="flex items-center gap-2">
               <BookOpen size={16} className="text-primary-500" />
-              <span className="text-sm font-semibold text-surface-800">{user.totalSessions}</span>
+              <span className="text-sm font-semibold text-surface-800">{user.totalSessions || 0}</span>
               <span className="text-sm text-surface-400">sessions</span>
             </div>
             <div className="flex items-center gap-2">
@@ -136,7 +178,7 @@ export default function Profile() {
             Skills Teaching
           </h3>
           <div className="flex flex-wrap gap-2">
-            {user.skillsTeaching.map((skill) => (
+            {(user.skillsTeaching || []).map((skill) => (
               <SkillTag key={skill} name={skill} size="md" />
             ))}
           </div>
@@ -149,7 +191,7 @@ export default function Profile() {
             Wants to Learn
           </h3>
           <div className="flex flex-wrap gap-2">
-            {user.skillsLearning.map((skill) => (
+            {(user.skillsLearning || []).map((skill) => (
               <SkillTag key={skill} name={skill} size="md" />
             ))}
           </div>

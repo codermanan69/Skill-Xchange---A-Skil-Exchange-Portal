@@ -1,13 +1,15 @@
 // ═══════════════════════════════════════════════
 // Skill Xchange — Requests Page
+// Integrates with backend GET/PATCH /api/requests
 // ═══════════════════════════════════════════════
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Inbox, Send, Check, X, MessageSquare } from 'lucide-react';
+import { Inbox, Send, Check, X, MessageSquare, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 import { useApp } from '../context/AppContext';
+import { requestService } from '../services/requestService';
 import { getUserById } from '../data/users';
 import Avatar from '../components/Avatar';
 import SkillTag from '../components/SkillTag';
@@ -16,24 +18,58 @@ import EmptyState from '../components/EmptyState';
 
 export default function Requests() {
   const { currentUser } = useAuth();
-  const { getIncomingRequests, getOutgoingRequests, acceptRequest, rejectRequest, refreshKey } = useApp();
+  const { acceptRequest, rejectRequest, refreshKey } = useApp();
   const [tab, setTab] = useState('incoming');
+  const [incoming, setIncoming] = useState([]);
+  const [outgoing, setOutgoing] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [processingId, setProcessingId] = useState(null);
   const navigate = useNavigate();
+
+  const fetchRequests = useCallback(async () => {
+    try {
+      const data = await requestService.getAllRequests();
+      setIncoming(data.incoming || []);
+      setOutgoing(data.outgoing || []);
+    } catch (err) {
+      console.warn('Failed to fetch requests:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchRequests();
+  }, [fetchRequests, refreshKey]);
 
   if (!currentUser) return null;
 
-  const incoming = getIncomingRequests(currentUser.id);
-  const outgoing = getOutgoingRequests(currentUser.id);
   const requests = tab === 'incoming' ? incoming : outgoing;
 
-  const handleAccept = (requestId) => {
-    acceptRequest(requestId);
-    toast.success('Request accepted! You can now chat.');
+  const handleAccept = async (requestId) => {
+    setProcessingId(requestId);
+    try {
+      await acceptRequest(requestId);
+      toast.success('Request accepted! You can now chat.');
+      await fetchRequests();
+    } catch (err) {
+      toast.error(err.message || 'Failed to accept request');
+    } finally {
+      setProcessingId(null);
+    }
   };
 
-  const handleReject = (requestId) => {
-    rejectRequest(requestId);
-    toast('Request rejected', { icon: '👋' });
+  const handleReject = async (requestId) => {
+    setProcessingId(requestId);
+    try {
+      await rejectRequest(requestId);
+      toast('Request rejected', { icon: '👋' });
+      await fetchRequests();
+    } catch (err) {
+      toast.error(err.message || 'Failed to reject request');
+    } finally {
+      setProcessingId(null);
+    }
   };
 
   return (
@@ -47,7 +83,7 @@ export default function Requests() {
       <div className="flex gap-1 bg-surface-100 p-1 rounded-xl w-fit">
         <button
           onClick={() => setTab('incoming')}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-2 ${
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-2 cursor-pointer ${
             tab === 'incoming'
               ? 'bg-white text-surface-900 shadow-sm'
               : 'text-surface-500 hover:text-surface-700'
@@ -63,7 +99,7 @@ export default function Requests() {
         </button>
         <button
           onClick={() => setTab('outgoing')}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-2 ${
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-2 cursor-pointer ${
             tab === 'outgoing'
               ? 'bg-white text-surface-900 shadow-sm'
               : 'text-surface-500 hover:text-surface-700'
@@ -74,11 +110,25 @@ export default function Requests() {
         </button>
       </div>
 
-      {/* Request List */}
-      {requests.length > 0 ? (
+      {/* Loading state */}
+      {isLoading ? (
+        <div className="flex justify-center py-16">
+          <div className="flex items-center gap-2 text-surface-400 text-sm">
+            <Loader2 size={20} className="animate-spin text-primary-500" />
+            Loading exchange requests...
+          </div>
+        </div>
+      ) : requests.length > 0 ? (
         <div className="space-y-3 stagger-children">
           {requests.map((req) => {
-            const otherUser = getUserById(tab === 'incoming' ? req.fromUserId : req.toUserId);
+            // Resolve other user from populated object or fallback ID
+            const target = tab === 'incoming' ? (req.fromUser || req.fromUserId) : (req.toUser || req.toUserId);
+            const otherUser = typeof target === 'object' && target !== null
+              ? target
+              : (getUserById(target) || { name: 'Skill Xchange User', avatar: '' });
+
+            const isProcessing = processingId === req.id;
+
             return (
               <div key={req.id} className="bg-white rounded-xl border border-surface-200 p-5 hover:shadow-md transition-all duration-300">
                 <div className="flex items-start gap-4">
@@ -118,15 +168,19 @@ export default function Requests() {
                   <div className="flex gap-2 mt-4 pt-4 border-t border-surface-100">
                     <button
                       onClick={() => handleAccept(req.id)}
-                      className="flex-1 py-2 bg-success-500 text-white rounded-lg text-sm font-medium hover:bg-success-600 transition-colors flex items-center justify-center gap-2"
+                      disabled={isProcessing}
+                      className="flex-1 py-2 bg-success-500 text-white rounded-lg text-sm font-medium hover:bg-success-600 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
                     >
-                      <Check size={16} /> Accept
+                      {isProcessing ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
+                      Accept
                     </button>
                     <button
                       onClick={() => handleReject(req.id)}
-                      className="flex-1 py-2 border border-surface-200 text-surface-600 rounded-lg text-sm font-medium hover:bg-surface-50 transition-colors flex items-center justify-center gap-2"
+                      disabled={isProcessing}
+                      className="flex-1 py-2 border border-surface-200 text-surface-600 rounded-lg text-sm font-medium hover:bg-surface-50 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
                     >
-                      <X size={16} /> Reject
+                      {isProcessing ? <Loader2 size={16} className="animate-spin" /> : <X size={16} />}
+                      Reject
                     </button>
                   </div>
                 )}
@@ -134,7 +188,7 @@ export default function Requests() {
                   <div className="mt-4 pt-4 border-t border-surface-100">
                     <button
                       onClick={() => navigate('/chat')}
-                      className="px-4 py-2 bg-primary-50 text-primary-600 rounded-lg text-sm font-medium hover:bg-primary-100 transition-colors flex items-center gap-2"
+                      className="px-4 py-2 bg-primary-50 text-primary-600 rounded-lg text-sm font-medium hover:bg-primary-100 transition-colors flex items-center gap-2 cursor-pointer"
                     >
                       <MessageSquare size={16} /> Open Chat
                     </button>

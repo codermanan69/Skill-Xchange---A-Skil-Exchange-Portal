@@ -2,12 +2,13 @@
 // Skill Xchange — Register Page
 // ═══════════════════════════════════════════════
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { ArrowRightLeft, User, Mail, Lock, Briefcase, BookOpen } from 'lucide-react';
+import { ArrowRightLeft, User, Mail, Lock, Briefcase, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
-import { skills } from '../data/skills';
+import { skills as initialSkills } from '../data/skills';
+import { skillService } from '../services/skillService';
 import SkillTag from '../components/SkillTag';
 
 export default function Register() {
@@ -16,8 +17,26 @@ export default function Register() {
     skillsTeaching: [], skillsLearning: [],
   });
   const [step, setStep] = useState(1);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [availableSkills, setAvailableSkills] = useState(initialSkills);
   const { register } = useAuth();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    let isMounted = true;
+    async function fetchSkills() {
+      try {
+        const data = await skillService.getSkills();
+        if (isMounted && data?.length) {
+          setAvailableSkills(data);
+        }
+      } catch (err) {
+        console.warn('Could not load skills from API:', err);
+      }
+    }
+    fetchSkills();
+    return () => { isMounted = false; };
+  }, []);
 
   const handleChange = (field, value) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -32,18 +51,32 @@ export default function Register() {
     }));
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.name || !form.email || !form.password) {
       toast.error('Please fill in all required fields');
       return;
     }
-    register(form);
-    toast.success('Welcome to Skill Xchange! 🎉 You received 100 welcome credits.');
-    navigate('/dashboard');
+    if (form.password.length < 6) {
+      toast.error('Password must be at least 6 characters');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const result = await register(form);
+      if (result.success) {
+        toast.success('Welcome to Skill Xchange! 🎉 You received 100 welcome credits.');
+        navigate('/dashboard');
+      } else {
+        toast.error(result.error || 'Registration failed');
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const skillNames = skills.map((s) => s.name);
+  const skillNames = availableSkills.map((s) => s.name);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary-50 via-white to-accent-50 flex items-center justify-center p-4">
@@ -114,7 +147,7 @@ export default function Register() {
                   </div>
                 </div>
                 <button type="button" onClick={() => setStep(2)}
-                  className="w-full py-2.5 bg-primary-600 text-white rounded-lg text-sm font-semibold hover:bg-primary-700 transition-colors">
+                  className="w-full py-2.5 bg-primary-600 text-white rounded-lg text-sm font-semibold hover:bg-primary-700 transition-colors cursor-pointer">
                   Continue
                 </button>
               </div>
@@ -128,7 +161,7 @@ export default function Register() {
                 <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto p-1">
                   {skillNames.map((name) => (
                     <button key={name} type="button" onClick={() => toggleSkill('skillsTeaching', name)}
-                      className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200 border ${
+                      className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200 border cursor-pointer ${
                         form.skillsTeaching.includes(name)
                           ? 'bg-primary-50 text-primary-700 border-primary-300'
                           : 'bg-white text-surface-600 border-surface-200 hover:border-surface-300'
@@ -146,11 +179,11 @@ export default function Register() {
                 )}
                 <div className="flex gap-3">
                   <button type="button" onClick={() => setStep(1)}
-                    className="flex-1 py-2.5 border border-surface-200 text-surface-600 rounded-lg text-sm font-medium hover:bg-surface-50 transition-colors">
+                    className="flex-1 py-2.5 border border-surface-200 text-surface-600 rounded-lg text-sm font-medium hover:bg-surface-50 transition-colors cursor-pointer">
                     Back
                   </button>
                   <button type="button" onClick={() => setStep(3)}
-                    className="flex-1 py-2.5 bg-primary-600 text-white rounded-lg text-sm font-semibold hover:bg-primary-700 transition-colors">
+                    className="flex-1 py-2.5 bg-primary-600 text-white rounded-lg text-sm font-semibold hover:bg-primary-700 transition-colors cursor-pointer">
                     Continue
                   </button>
                 </div>
@@ -165,7 +198,7 @@ export default function Register() {
                 <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto p-1">
                   {skillNames.map((name) => (
                     <button key={name} type="button" onClick={() => toggleSkill('skillsLearning', name)}
-                      className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200 border ${
+                      className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200 border cursor-pointer ${
                         form.skillsLearning.includes(name)
                           ? 'bg-accent-50 text-accent-700 border-accent-300'
                           : 'bg-white text-surface-600 border-surface-200 hover:border-surface-300'
@@ -183,12 +216,21 @@ export default function Register() {
                 )}
                 <div className="flex gap-3">
                   <button type="button" onClick={() => setStep(2)}
-                    className="flex-1 py-2.5 border border-surface-200 text-surface-600 rounded-lg text-sm font-medium hover:bg-surface-50 transition-colors">
+                    disabled={isSubmitting}
+                    className="flex-1 py-2.5 border border-surface-200 text-surface-600 rounded-lg text-sm font-medium hover:bg-surface-50 transition-colors disabled:opacity-50 cursor-pointer">
                     Back
                   </button>
                   <button type="submit"
-                    className="flex-1 py-2.5 bg-gradient-to-r from-primary-600 to-accent-500 text-white rounded-lg text-sm font-semibold hover:shadow-lg transition-all">
-                    Create Account
+                    disabled={isSubmitting}
+                    className="flex-1 py-2.5 bg-gradient-to-r from-primary-600 to-accent-500 text-white rounded-lg text-sm font-semibold hover:shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer">
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 size={16} className="animate-spin" />
+                        Creating...
+                      </>
+                    ) : (
+                      'Create Account'
+                    )}
                   </button>
                 </div>
               </div>

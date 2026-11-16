@@ -2,6 +2,7 @@
 // Skill Xchange — Dashboard Page
 // ═══════════════════════════════════════════════
 
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Coins,
@@ -17,9 +18,9 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useApp } from '../context/AppContext';
 import { userService } from '../services/userService';
+import { requestService } from '../services/requestService';
 import Avatar from '../components/Avatar';
 import SkillTag from '../components/SkillTag';
-import CreditBadge from '../components/CreditBadge';
 import StatusBadge from '../components/StatusBadge';
 import { getUserById } from '../data/users';
 
@@ -27,22 +28,44 @@ export default function Dashboard() {
   const { currentUser } = useAuth();
   const {
     getBalance,
-    getIncomingRequests,
     getUpcomingSessions,
     getCompletedSessions,
     getTransactionHistory,
     refreshKey,
   } = useApp();
+  const [incoming, setIncoming] = useState([]);
   const navigate = useNavigate();
+
+  const currentUserId = currentUser?.id || currentUser?._id;
+
+  useEffect(() => {
+    let isMounted = true;
+    async function loadRequests() {
+      try {
+        const reqs = await requestService.getIncomingRequests();
+        if (isMounted && Array.isArray(reqs)) {
+          setIncoming(reqs.filter((r) => r.status === 'pending'));
+        }
+      } catch (err) {
+        console.warn('Dashboard failed to load incoming requests:', err);
+      }
+    }
+
+    if (currentUserId) {
+      loadRequests();
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, [currentUserId, refreshKey]);
 
   if (!currentUser) return null;
 
-  const balance = getBalance(currentUser.id);
-  const incoming = getIncomingRequests(currentUser.id).filter((r) => r.status === 'pending');
-  const upcoming = getUpcomingSessions(currentUser.id);
-  const completed = getCompletedSessions(currentUser.id);
-  const matches = userService.getSkillMatches(currentUser.id);
-  const recentTxns = getTransactionHistory(currentUser.id).slice(0, 3);
+  const balance = currentUser.credits ?? getBalance(currentUserId);
+  const upcoming = getUpcomingSessions(currentUserId);
+  const completed = getCompletedSessions(currentUserId);
+  const matches = userService.getSkillMatches(currentUserId);
+  const recentTxns = getTransactionHistory(currentUserId).slice(0, 3);
 
   const stats = [
     { label: 'Skill Credits', value: balance, icon: Coins, color: 'from-warning-400 to-warning-500', textColor: 'text-warning-600' },
@@ -63,7 +86,7 @@ export default function Dashboard() {
             <span className="text-sm text-white/80 font-medium">Welcome back</span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-bold mb-2">
-            {currentUser.name.split(' ')[0]}, ready to exchange skills?
+            {(currentUser.name || 'User').split(' ')[0]}, ready to exchange skills?
           </h1>
           <p className="text-white/70 text-sm sm:text-base max-w-md">
             You have <strong className="text-white">{incoming.length} pending request{incoming.length !== 1 ? 's' : ''}</strong> and{' '}
@@ -71,12 +94,12 @@ export default function Dashboard() {
           </p>
           <div className="flex flex-wrap gap-3 mt-5">
             <button onClick={() => navigate('/discover')}
-              className="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg text-sm font-medium transition-colors backdrop-blur-sm flex items-center gap-2">
+              className="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg text-sm font-medium transition-colors backdrop-blur-sm flex items-center gap-2 cursor-pointer">
               <Users size={16} /> Discover People
             </button>
             {incoming.length > 0 && (
               <button onClick={() => navigate('/requests')}
-                className="px-4 py-2 bg-white text-primary-700 rounded-lg text-sm font-semibold hover:bg-white/90 transition-colors flex items-center gap-2">
+                className="px-4 py-2 bg-white text-primary-700 rounded-lg text-sm font-semibold hover:bg-white/90 transition-colors flex items-center gap-2 cursor-pointer">
                 View Requests <ArrowRight size={14} />
               </button>
             )}
@@ -107,7 +130,7 @@ export default function Dashboard() {
               <ArrowRightLeft size={16} className="text-primary-500" />
               Skill Matches
             </h3>
-            <button onClick={() => navigate('/discover')} className="text-xs text-primary-600 font-medium hover:underline">
+            <button onClick={() => navigate('/discover')} className="text-xs text-primary-600 font-medium hover:underline cursor-pointer">
               View all
             </button>
           </div>
@@ -115,8 +138,8 @@ export default function Dashboard() {
             <div className="space-y-3">
               {matches.slice(0, 3).map(({ user, matchingSkills, reverseMatch }) => (
                 <div
-                  key={user.id}
-                  onClick={() => navigate(`/profile/${user.id}`)}
+                  key={user.id || user._id}
+                  onClick={() => navigate(`/profile/${user.id || user._id}`)}
                   className="flex items-center gap-3 p-3 rounded-lg hover:bg-surface-50 transition-colors cursor-pointer group"
                 >
                   <Avatar src={user.avatar} name={user.name} size="md" isOnline={user.isOnline} />
@@ -146,7 +169,7 @@ export default function Dashboard() {
               <Calendar size={16} className="text-accent-500" />
               Upcoming Sessions
             </h3>
-            <button onClick={() => navigate('/sessions')} className="text-xs text-primary-600 font-medium hover:underline">
+            <button onClick={() => navigate('/sessions')} className="text-xs text-primary-600 font-medium hover:underline cursor-pointer">
               View all
             </button>
           </div>
@@ -154,7 +177,7 @@ export default function Dashboard() {
             <div className="space-y-3">
               {upcoming.slice(0, 3).map((session) => {
                 const other = getUserById(
-                  session.teacherId === currentUser.id ? session.learnerId : session.teacherId
+                  session.teacherId === currentUserId ? session.learnerId : session.teacherId
                 );
                 return (
                   <div key={session.id} className="flex items-center gap-3 p-3 rounded-lg hover:bg-surface-50 transition-colors cursor-pointer"
@@ -183,7 +206,7 @@ export default function Dashboard() {
               <Coins size={16} className="text-warning-500" />
               Recent Transactions
             </h3>
-            <button onClick={() => navigate('/credits')} className="text-xs text-primary-600 font-medium hover:underline">
+            <button onClick={() => navigate('/credits')} className="text-xs text-primary-600 font-medium hover:underline cursor-pointer">
               View all
             </button>
           </div>
@@ -221,14 +244,14 @@ export default function Dashboard() {
           <div className="grid grid-cols-2 gap-3">
             {[
               { label: 'Discover', icon: Users, path: '/discover', color: 'from-primary-500 to-primary-600' },
-              { label: 'My Profile', icon: Star, path: `/profile/${currentUser.id}`, color: 'from-warning-500 to-warning-600' },
+              { label: 'My Profile', icon: Star, path: `/profile/${currentUserId}`, color: 'from-warning-500 to-warning-600' },
               { label: 'Chat', icon: BookOpen, path: '/chat', color: 'from-success-500 to-success-600' },
               { label: 'Credits', icon: Coins, path: '/credits', color: 'from-accent-500 to-accent-600' },
             ].map((action) => (
               <button
                 key={action.label}
                 onClick={() => navigate(action.path)}
-                className="flex items-center gap-3 p-3 rounded-xl border border-surface-200 hover:shadow-md hover:border-primary-200 transition-all duration-200 group"
+                className="flex items-center gap-3 p-3 rounded-xl border border-surface-200 hover:shadow-md hover:border-primary-200 transition-all duration-200 group cursor-pointer"
               >
                 <div className={`w-9 h-9 rounded-lg bg-gradient-to-br ${action.color} flex items-center justify-center group-hover:scale-110 transition-transform`}>
                   <action.icon size={16} className="text-white" />

@@ -28,48 +28,35 @@ export function AppProvider({ children }) {
   }, []);
 
   // ── Requests ──
-  const sendRequest = (data) => {
-    const result = requestService.sendRequest(data);
-    if (!result.error) {
-      // Add notification for recipient
-      addNotification({
-        userId: data.toUserId,
-        type: 'request_received',
-        title: 'New Learning Request',
-        message: `Someone wants to learn ${data.skillWanted} from you`,
-        fromUserId: data.fromUserId,
-        link: '/requests',
-      });
-    }
+  const sendRequest = async (data) => {
+    const result = await requestService.sendRequest(data);
     refresh();
     return result;
   };
 
-  const acceptRequest = (requestId) => {
-    const result = requestService.acceptRequest(requestId);
-    if (result) {
-      addNotification({
-        userId: result.fromUserId,
-        type: 'request_accepted',
-        title: 'Request Accepted!',
-        message: 'Your learning request has been accepted. You can now chat!',
-        fromUserId: result.toUserId,
-        link: '/chat',
-      });
+  const acceptRequest = async (requestId) => {
+    try {
+      const result = await requestService.acceptRequest(requestId);
+      refresh();
+      return result;
+    } catch (err) {
+      throw err;
     }
-    refresh();
-    return result;
   };
 
-  const rejectRequest = (requestId) => {
-    const result = requestService.rejectRequest(requestId);
-    refresh();
-    return result;
+  const rejectRequest = async (requestId) => {
+    try {
+      const result = await requestService.rejectRequest(requestId);
+      refresh();
+      return result;
+    } catch (err) {
+      throw err;
+    }
   };
 
   const getIncomingRequests = (userId) => requestService.getIncomingRequests(userId);
   const getOutgoingRequests = (userId) => requestService.getOutgoingRequests(userId);
-  const getConnections = (userId) => requestService.getConnections(userId);
+  const getConnections = (userId) => requestService.getConnections ? requestService.getConnections(userId) : [];
 
   // ── Sessions ──
   const createSession = (data) => {

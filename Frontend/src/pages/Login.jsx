@@ -4,7 +4,7 @@
 
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { ArrowRightLeft, Mail, Lock, LogIn } from 'lucide-react';
+import { ArrowRightLeft, Mail, Lock, LogIn, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 import Avatar from '../components/Avatar';
@@ -13,25 +13,42 @@ import { users } from '../data/users';
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const { login, loginAs } = useAuth();
   const navigate = useNavigate();
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    const result = login(email, password);
-    if (result.success) {
-      toast.success('Welcome back!');
-      navigate('/dashboard');
-    } else {
-      toast.error(result.error || 'Login failed');
+    if (!email || !password) {
+      toast.error('Please enter both email and password');
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const result = await login(email, password);
+      if (result.success) {
+        toast.success('Welcome back!');
+        navigate('/dashboard');
+      } else {
+        toast.error(result.error || 'Login failed');
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const handleDemoLogin = (userId) => {
-    const result = loginAs(userId);
-    if (result.success) {
-      toast.success('Logged in as demo user');
-      navigate('/dashboard');
+  const handleDemoLogin = async (userId) => {
+    setIsSubmitting(true);
+    try {
+      const result = await loginAs(userId);
+      if (result.success) {
+        toast.success('Logged in as demo user');
+        navigate('/dashboard');
+      } else {
+        toast.error(result.error || 'Demo login failed');
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -62,7 +79,8 @@ export default function Login() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@example.com"
-                  className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-surface-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all"
+                  disabled={isSubmitting}
+                  className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-surface-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all disabled:opacity-50"
                 />
               </div>
             </div>
@@ -75,16 +93,27 @@ export default function Login() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-surface-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all"
+                  disabled={isSubmitting}
+                  className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-surface-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all disabled:opacity-50"
                 />
               </div>
             </div>
             <button
               type="submit"
-              className="w-full py-2.5 bg-primary-600 text-white rounded-lg text-sm font-semibold hover:bg-primary-700 transition-colors flex items-center justify-center gap-2"
+              disabled={isSubmitting}
+              className="w-full py-2.5 bg-primary-600 text-white rounded-lg text-sm font-semibold hover:bg-primary-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
             >
-              <LogIn size={16} />
-              Sign In
+              {isSubmitting ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  Signing In...
+                </>
+              ) : (
+                <>
+                  <LogIn size={16} />
+                  Sign In
+                </>
+              )}
             </button>
           </form>
 
@@ -109,7 +138,8 @@ export default function Login() {
               <button
                 key={user.id}
                 onClick={() => handleDemoLogin(user.id)}
-                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-surface-50 transition-all duration-150 group text-left"
+                disabled={isSubmitting}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-surface-50 transition-all duration-150 group text-left disabled:opacity-50"
               >
                 <Avatar src={user.avatar} name={user.name} size="sm" />
                 <div className="flex-1 min-w-0">

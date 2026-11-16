@@ -1,48 +1,71 @@
 // ═══════════════════════════════════════════════
 // Skill Xchange — Auth Context
+// Manages real backend authentication state and session
 // ═══════════════════════════════════════════════
 
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { authService } from '../services/authService';
 import { users } from '../data/users';
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [currentUser, setCurrentUser] = useState(null);
+  const [currentUser, setCurrentUser] = useState(authService.getCurrentAuth());
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Check for existing auth on mount
-    const user = authService.getCurrentAuth();
-    if (user) {
-      setCurrentUser(user);
+    let isMounted = true;
+
+    async function initAuth() {
+      try {
+        const user = await authService.getMe();
+        if (isMounted) {
+          setCurrentUser(user);
+        }
+      } catch (err) {
+        console.warn('Failed to load user session on mount:', err);
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
     }
-    setIsLoading(false);
+
+    initAuth();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
-  const login = (email, password) => {
-    const user = authService.login(email, password);
-    if (user) {
+  const login = async (email, password) => {
+    try {
+      const user = await authService.login(email, password);
       setCurrentUser(user);
-      return { success: true };
+      return { success: true, user };
+    } catch (err) {
+      return { success: false, error: err.message || 'Invalid email or password' };
     }
-    return { success: false, error: 'Invalid email or password' };
   };
 
-  const loginAs = (userId) => {
-    const user = authService.loginAs(userId);
-    if (user) {
+  const loginAs = async (userId) => {
+    try {
+      const user = await authService.loginAs(userId);
       setCurrentUser(user);
-      return { success: true };
+      return { success: true, user };
+    } catch (err) {
+      return { success: false, error: err.message || 'Demo login failed' };
     }
-    return { success: false };
   };
 
-  const register = (userData) => {
-    const user = authService.register(userData);
-    setCurrentUser(user);
-    return { success: true };
+  const register = async (userData) => {
+    try {
+      const user = await authService.register(userData);
+      setCurrentUser(user);
+      return { success: true, user };
+    } catch (err) {
+      return { success: false, error: err.message || 'Registration failed' };
+    }
   };
 
   const logout = () => {
@@ -50,9 +73,13 @@ export function AuthProvider({ children }) {
     setCurrentUser(null);
   };
 
-  const switchUser = (userId) => {
+  const switchUser = async (userId) => {
     return loginAs(userId);
   };
+
+  const updateCurrentUser = useCallback((updatedUser) => {
+    setCurrentUser((prev) => ({ ...prev, ...updatedUser }));
+  }, []);
 
   const value = {
     currentUser,
@@ -63,6 +90,7 @@ export function AuthProvider({ children }) {
     register,
     logout,
     switchUser,
+    updateCurrentUser,
     allUsers: users,
   };
 
